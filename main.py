@@ -24,8 +24,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # IMPORTANT: Replace these URLs with your actual search query URLs
 # It should be sorted by the newest listings.
-NJUSKALO_URL = "https://www.njuskalo.hr/iznajmljivanje-stanova/zagreb?price[max]=600&sort=new"
-INDEX_OGLASI_URL = "https://www.index.hr/oglasi/najam-stanova/grad-zagreb?pojam=&maxCIjena=600&tipoglasa=1&sort=1"
+NJUSKALO_URL = "https://www.njuskalo.hr/iznajmljivanje-stanova/tresnjevka-jug?price%5Bmax%5D=600"
+INDEX_OGLASI_URL = "https://www.index.hr/oglasi/nekretnine/najam-stanova/grad-zagreb/pretraga?searchQuery=%257B%2522category%2522%253A%2522najam-stanova%2522%252C%2522module%2522%253A%2522nekretnine%2522%252C%2522includeCountyIds%2522%253A%255B%2522056b6c84-e6f1-433f-8bdc-9b8dbb86d6fb%2522%255D%252C%2522priceTo%2522%253A%2522600%2522%252C%2522sortOption%2522%253A4%257D"
 
 SEEN_ADS_FILE = "seen_ads.json"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"
