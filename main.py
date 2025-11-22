@@ -144,6 +144,10 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
                 logger.warning(f"Skipping ad with missing title/link: {data_href}")
                 continue
 
+            if "iznajmljivanje-stanova" not in link:
+                logger.debug(f"Skipping non-apartment ad: {link}")
+                continue
+
             full_link = f"https://www.njuskalo.hr{link}" if link.startswith('/') else link
             price = price_element.inner_text().strip() if price_element else "N/A"
 
@@ -224,13 +228,20 @@ def scrape_index_oglasi(page: Page) -> List[Dict[str, Any]]:
 
             title_element = item.query_selector(".AdSummary__title___y1fZw")
             price_element = item.query_selector(".adPrice__price___3o3Dk")
+            location_element = item.query_selector(".adLocation__location___3r63d")
             
             title = title_element.inner_text().strip() if title_element else "N/A"
-            price = price_element.inner_text().strip() if price_element else "N/A"
+            price = price_element.inner_text().strip() if price_element else "N/A" 
+            location = location_element.inner_text().strip() if location_element else "N/A"
             
             # Final check to ensure we extracted something meaningful
             if title == "N/A" and price == "N/A":
                 logger.warning(f"Skipping ad with missing title/price: {link}")
+                continue
+
+            # Filter for Trešnjevka only because Index Oglasi filtering doesnt work
+            if "Trešnjevka" not in location:
+                logger.debug(f"Skipping ad outside Trešnjevka: {location}")
                 continue
 
             ads.append({
