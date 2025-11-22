@@ -144,7 +144,7 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
                 logger.warning(f"Skipping ad with missing title/link: {data_href}")
                 continue
 
-            if "iznajmljivanje-stanova" not in link:
+            if "/nekretnine" not in link:
                 logger.debug(f"Skipping non-apartment ad: {link}")
                 continue
 
