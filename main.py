@@ -3,10 +3,19 @@ import json
 import os
 import random
 import time
+import logging
 from typing import List, Dict, Any
 
 import requests
-from playwright.sync_api import sync_playwright, Page, Playwright, Browser
+from playwright.sync_api import sync_playwright, Page
+
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -14,8 +23,8 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # IMPORTANT: Replace these URLs with your actual search query URLs
 # It should be sorted by the newest listings.
-NJUSKALO_URL = "https://www.njuskalo.hr/iznajmljivanje-stanova/tresnjevka-jug?price%5Bmax%5D=600"
-INDEX_OGLASI_URL = "https://www.index.hr/oglasi/nekretnine/najam-stanova/grad-zagreb/pretraga?searchQuery=%257B%2522category%2522%253A%2522najam-stanova%2522%252C%2522module%2522%253A%2522nekretnine%2522%252C%2522includeCountyIds%2522%253A%255B%2522056b6c84-e6f1-433f-8bdc-9b8dbb86d6fb%2522%255D%252C%2522priceTo%2522%253A%2522600%2522%252C%2522sortOption%2522%253A4%257D"
+NJUSKALO_URL = "https://www.njuskalo.hr/iznajmljivanje-stanova/zagreb?price[max]=600&sort=new"
+INDEX_OGLASI_URL = "https://www.index.hr/oglasi/najam-stanova/grad-zagreb?pojam=&maxCIjena=600&tipoglasa=1&sort=1"
 
 SEEN_ADS_FILE = "seen_ads.json"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"
@@ -25,7 +34,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 def load_seen_ads() -> List[str]:
     """Loads seen ad IDs from a JSON file. If the file doesn't exist, creates it."""
     if not os.path.exists(SEEN_ADS_FILE):
-        print(f"'{SEEN_ADS_FILE}' not found. Creating a new empty file.")
+        logger.info(f"'{SEEN_ADS_FILE}' not found. Creating a new empty file.")
         with open(SEEN_ADS_FILE, "w") as f:
             json.dump([], f)
         return []
@@ -33,21 +42,22 @@ def load_seen_ads() -> List[str]:
     with open(SEEN_ADS_FILE, "r") as f:
         # Handle case where file might be empty or corrupt
         try:
+            logger.info(f"Loading seen ads from '{SEEN_ADS_FILE}'.")
             return json.load(f)
         except json.JSONDecodeError:
-            print(f"Warning: '{SEEN_ADS_FILE}' is empty or corrupt. Starting with an empty list.")
+            logger.warning(f"'{SEEN_ADS_FILE}' is empty or corrupt. Starting with an empty list.")
             return []
 
 def save_seen_ads(ad_ids: List[str]):
     """Saves seen ad IDs to a JSON file."""
     with open(SEEN_ADS_FILE, "w") as f:
         json.dump(ad_ids, f, indent=4)
-    print(f"Successfully saved {len(ad_ids)} ad IDs to {SEEN_ADS_FILE}")
+    logger.info(f"Successfully saved {len(ad_ids)} ad IDs to {SEEN_ADS_FILE}")
 
 def send_telegram_notification(ad: Dict[str, Any]):
     """Sends a formatted message to Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram token or chat ID not set. Skipping notification.")
+        logger.warning("Telegram token or chat ID not set. Skipping notification.")
         return
 
     message = (
@@ -67,15 +77,15 @@ def send_telegram_notification(ad: Dict[str, Any]):
     try:
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
-        print(f"Successfully sent notification for ad: {ad['id']}")
+        logger.info(f"Successfully sent notification for ad: {ad['id']}")
     except requests.RequestException as e:
-        print(f"Error sending Telegram notification: {e}")
+        logger.error(f"Error sending Telegram notification: {e}")
 
 # --- Scraping Functions ---
 
 def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
     """Scrapes Njuškalo for apartment listings."""
-    print("Scraping Njuškalo...")
+    logger.info("Scraping Njuškalo...")
     ads = []
     try:
         page.goto(NJUSKALO_URL, wait_until="domcontentloaded", timeout=60000)
@@ -103,15 +113,15 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
                 "link": full_link
             })
     except Exception as e:
-        print(f"Error scraping Njuškalo: {e}")
+        logger.error(f"Error scraping Njuškalo: {e}", exc_info=True)
         page.screenshot(path="error_njuskalo.png")
     
-    print(f"Found {len(ads)} ads on Njuškalo.")
+    logger.info(f"Found {len(ads)} ads on Njuškalo.")
     return ads
 
 def scrape_index_oglasi(page: Page) -> List[Dict[str, Any]]:
     """Scrapes Index Oglasi for apartment listings."""
-    print("Scraping Index Oglasi...")
+    logger.info("Scraping Index Oglasi...")
     ads = []
     try:
         page.goto(INDEX_OGLASI_URL, wait_until="domcontentloaded", timeout=60000)
@@ -146,10 +156,10 @@ def scrape_index_oglasi(page: Page) -> List[Dict[str, Any]]:
                 "link": link
             })
     except Exception as e:
-        print(f"Error scraping Index Oglasi: {e}")
+        logger.error(f"Error scraping Index Oglasi: {e}", exc_info=True)
         page.screenshot(path="error_index_oglasi.png")
 
-    print(f"Found {len(ads)} ads on Index Oglasi.")
+    logger.info(f"Found {len(ads)} ads on Index Oglasi.")
     return ads
 
 
@@ -157,8 +167,9 @@ def scrape_index_oglasi(page: Page) -> List[Dict[str, Any]]:
 
 def main():
     """Main function to run the scraper."""
+    logger.info("--- Starting scraper run ---")
     if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-        print("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables. Exiting.")
+        logger.critical("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables. Exiting.")
         return
 
     seen_ads = load_seen_ads()
@@ -174,30 +185,34 @@ def main():
 
         # Scrape sites
         njuskalo_ads = scrape_njuskalo(page)
+        logger.info("Sleeping for a few seconds before next scrape...")
         time.sleep(random.uniform(3, 7))
         index_ads = scrape_index_oglasi(page)
 
         all_ads = njuskalo_ads + index_ads
+
+        logger.info(f"Total ads found across all sites: {len(all_ads)}")
         
         # Process ads
         for ad in all_ads:
             if ad["id"] not in seen_ads:
-                print(f"New ad found: {ad['id']} - {ad['title']}")
+                logger.info(f"New ad found: {ad['id']} - {ad['title']}")
                 all_new_ads.append(ad)
                 seen_ads.append(ad['id'])
 
         # Send notifications and save state
         if all_new_ads:
-            print(f"Found {len(all_new_ads)} new ads in total. Sending notifications...")
+            logger.info(f"Found {len(all_new_ads)} new ads in total. Sending notifications...")
             for ad in reversed(all_new_ads): # Send oldest first
                 send_telegram_notification(ad)
                 time.sleep(random.uniform(1, 3)) # Avoid rate limiting
             
             save_seen_ads(seen_ads)
         else:
-            print("No new ads found.")
+            logger.info("No new ads found.")
 
         browser.close()
+    logger.info("--- Scraper run finished ---")
 
 if __name__ == "__main__":
     main()
