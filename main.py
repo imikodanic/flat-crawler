@@ -23,11 +23,20 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 # --- Helper Functions ---
 
 def load_seen_ads() -> List[str]:
-    """Loads seen ad IDs from a JSON file."""
-    if os.path.exists(SEEN_ADS_FILE):
-        with open(SEEN_ADS_FILE, "r") as f:
+    """Loads seen ad IDs from a JSON file. If the file doesn't exist, creates it."""
+    if not os.path.exists(SEEN_ADS_FILE):
+        print(f"'{SEEN_ADS_FILE}' not found. Creating a new empty file.")
+        with open(SEEN_ADS_FILE, "w") as f:
+            json.dump([], f)
+        return []
+    
+    with open(SEEN_ADS_FILE, "r") as f:
+        # Handle case where file might be empty or corrupt
+        try:
             return json.load(f)
-    return []
+        except json.JSONDecodeError:
+            print(f"Warning: '{SEEN_ADS_FILE}' is empty or corrupt. Starting with an empty list.")
+            return []
 
 def save_seen_ads(ad_ids: List[str]):
     """Saves seen ad IDs to a JSON file."""
