@@ -4,6 +4,7 @@ import os
 import random
 import time
 import logging
+import re # Added for Njuškalo ID extraction
 from typing import List, Dict, Any
 
 import requests
@@ -89,20 +90,60 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
     ads = []
     try:
         page.goto(NJUSKALO_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_selector(".EntityList-item", timeout=30000)
 
-        items = page.query_selector_all(".EntityList-item--Regular, .EntityList-item--VauVau")
+        # --- Try to accept cookies ---
+        try:
+            # Using a selector that is common for cookie banners on Croatian sites
+            cookie_button_selector = 'button:has-text("Slažem se")'
+            logger.info(f"Looking for cookie consent button: {cookie_button_selector}")
+            button = page.locator(cookie_button_selector).first
+            # Use a short timeout as the button may not exist
+            if button.is_visible(timeout=5000):
+                logger.info("Cookie consent button found. Clicking it.")
+                button.click()
+                page.wait_for_timeout(2000)  # Wait for overlay to disappear
+            else:
+                logger.info("No cookie consent button was found or visible.")
+        except Exception as e:
+            logger.warning(f"An error occurred while trying to click cookie button (this is often okay): {e}")
+        # --- END ---
+
+        item_selector = ".EntityList-item"  # Use the more general selector
+        logger.info(f"Waiting for main ad selector: {item_selector}")
+        page.wait_for_selector(item_selector, timeout=30000)
+
+        items = page.query_selector_all(item_selector)
+        logger.info(f"Found {len(items)} potential ad items.")
         
         for item in items:
-            ad_id = item.get_attribute("data-id")
-            if not ad_id:
+            # Extract ad_id from data-href attribute
+            data_href = item.get_attribute("data-href")
+            if not data_href:
                 continue
+            
+            # Example: "/nekretnine/ul-brace-domany-8-41-m2-lift-klima-odvojena-spavaca-soba-oglas-47228589"
+            # Extracting "47228589"
+            ad_id_match = re.search(r'-oglas-(\d+)', data_href)
+            if not ad_id_match:
+                # Fallback to data-id if data-href doesn't match the pattern
+                ad_id = item.get_attribute("data-id")
+                if not ad_id:
+                    logger.warning(f"Could not extract ad ID from data-href or data-id for item: {data_href}")
+                    continue
+            else:
+                ad_id = ad_id_match.group(1)
 
             title_element = item.query_selector(".entity-title a")
-            price_element = item.query_selector(".entity-price")
+            price_element = item.query_selector(".entity-prices .price") # More specific selector for price
             
             title = title_element.inner_text().strip() if title_element else "N/A"
             link = title_element.get_attribute("href") if title_element else "N/A"
+            
+            # Skip if essential info is missing
+            if title == "N/A" or link == "N/A":
+                logger.warning(f"Skipping ad with missing title/link: {data_href}")
+                continue
+
             full_link = f"https://www.njuskalo.hr{link}" if link.startswith('/') else link
             price = price_element.inner_text().strip() if price_element else "N/A"
 
@@ -122,38 +163,81 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
 def scrape_index_oglasi(page: Page) -> List[Dict[str, Any]]:
     """Scrapes Index Oglasi for apartment listings."""
     logger.info("Scraping Index Oglasi...")
+    # This selector targets the main <a> tag for each ad, which contains all info.
+    # It looks for <a> tags whose href contains the common path for ad listings.
+    ad_link_selector = 'a[href*="/oglasi/nekretnine/najam-stanova/oglas/"]'
     ads = []
     try:
         page.goto(INDEX_OGLASI_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_selector(".OglasiRezultati-ad-card", timeout=30000)
-
-        items = page.query_selector_all(".OglasiRezultati-ad-card")
         
-        for item in items:
-            link_element = item.query_selector("a")
-            if not link_element:
-                continue
+        # --- Try to accept cookies (added for robustness) ---
+        try:
+            selectors_to_try = [
+                'button:has-text("Prihvati sve")', # "Accept all"
+                'button:has-text("Prihvaćam")',   # "I accept"
+                '#didomi-notice-agree-button',      # A common ID for consent dialogs
+                '[id*="cookie"] button',            # Generic cookie button
+            ]
             
-            link = link_element.get_attribute("href")
-            # Extract ID from URL: e.g., /oglasi/stan-zagreb-tresnjevka-sjever-60-m2/1234567 -> 1234567
-            ad_id = link.split('/')[-1] if link else None
-            if not ad_id or not ad_id.isdigit():
-                 # sometimes the last part is not an id
-                 ad_id = link.split('/')[-2] if link else None
-                 if not ad_id or not ad_id.isdigit():
+            clicked = False
+            for selector in selectors_to_try:
+                logger.info(f"Looking for cookie consent button with selector: {selector}")
+                button = page.locator(selector).first
+                if button.is_visible(timeout=5000): # Use a short timeout as the button may not exist
+                    logger.info("Cookie consent button found. Clicking it.")
+                    button.click()
+                    page.wait_for_timeout(2000) # Wait for overlay to disappear
+                    clicked = True
+                    break # Exit loop once clicked
+            
+            if not clicked:
+                logger.info("No common cookie consent button was found or visible.")
+
+        except Exception as e:
+            logger.warning(f"An error occurred while trying to click cookie button (this is often okay): {e}")
+        # --- END cookie handling ---
+
+        logger.info(f"Waiting for ad links with selector: {ad_link_selector}")
+        page.wait_for_selector(ad_link_selector, timeout=30000)
+
+        items = page.query_selector_all(ad_link_selector)
+        logger.info(f"Found {len(items)} potential ad links.")
+        
+        for item in items: # Each 'item' is now the <a> element
+            link = item.get_attribute("href")
+            
+            # Ensure the link is valid and extract ID
+            if not link or "/oglasi/" not in link:
+                logger.debug(f"Skipping item due to invalid link: {link}")
+                continue
+
+            # Extract ID from URL: e.g., /oglasi/.../1234567 -> 1234567
+            ad_id = link.split('/')[-1]
+            if not ad_id.isdigit():
+                 # sometimes the last part is not an id, try one level up
+                 ad_id_path_segment = link.rstrip('/').split('/')[-1]
+                 if ad_id_path_segment.isdigit():
+                     ad_id = ad_id_path_segment
+                 else:
+                     logger.warning(f"Could not extract digit ID from link: {link}")
                      continue
 
-            title_element = item.query_selector(".title")
-            price_element = item.query_selector(".price")
+            title_element = item.query_selector(".AdSummary__title___y1fZw")
+            price_element = item.query_selector(".adPrice__price___3o3Dk")
             
             title = title_element.inner_text().strip() if title_element else "N/A"
             price = price_element.inner_text().strip() if price_element else "N/A"
             
+            # Final check to ensure we extracted something meaningful
+            if title == "N/A" and price == "N/A":
+                logger.warning(f"Skipping ad with missing title/price: {link}")
+                continue
+
             ads.append({
                 "id": f"index-{ad_id}",
                 "title": title,
                 "price": price,
-                "link": link
+                "link": link if link.startswith("http") else f"https://www.index.hr{link}"
             })
     except Exception as e:
         logger.error(f"Error scraping Index Oglasi: {e}", exc_info=True)
