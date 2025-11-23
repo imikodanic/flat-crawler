@@ -135,9 +135,11 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
 
             title_element = item.query_selector(".entity-title a")
             price_element = item.query_selector(".entity-prices .price") # More specific selector for price
-            
+            description_element = item.query_selector(".entity-description-main")
+
             title = title_element.inner_text().strip() if title_element else "N/A"
             link = title_element.get_attribute("href") if title_element else "N/A"
+            description = description_element.inner_text().strip() if description_element else ""
             
             # Skip if essential info is missing
             if title == "N/A" or link == "N/A":
@@ -146,6 +148,10 @@ def scrape_njuskalo(page: Page) -> List[Dict[str, Any]]:
 
             if "/nekretnine" not in link:
                 logger.debug(f"Skipping non-apartment ad: {link}")
+                continue
+
+            if "Trešnjevka" not in description:
+                logger.debug(f"Skipping ad outside Trešnjevka: {description}")
                 continue
 
             full_link = f"https://www.njuskalo.hr{link}" if link.startswith('/') else link
